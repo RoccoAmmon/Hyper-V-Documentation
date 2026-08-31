@@ -7,7 +7,7 @@
 > (Windows Server 2016, 2019, 2022 & 2025) – standalone hosts and failover clusters.
 
 [![Status](https://img.shields.io/badge/Status-Stable-brightgreen)](CHANGELOG.md)
-[![Version](https://img.shields.io/badge/Version-1.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-1.1-blue)](CHANGELOG.md)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)](https://www.microsoft.com/en-us/download/details.aspx?id=50395)
 [![License](https://img.shields.io/github/license/RoccoAmmon/Hyper-V-Documentation)](LICENSE)
 [![GitHub Issues](https://img.shields.io/github/issues/RoccoAmmon/Hyper-V-Documentation)](https://github.com/RoccoAmmon/Hyper-V-Documentation/issues)
@@ -40,6 +40,13 @@ automatically and the document title is adjusted accordingly.
 ---
 
 ## ✨ Features / Funktionen
+
+### 🌐 Zweisprachig / Bilingual (DE / EN)
+
+- Parameter `-Language DE|EN` steuert GUI, Konsolenausgaben, Logdatei und Report
+- Sprachumschalter (DE/EN) direkt in der grafischen Oberfläche
+- Übersetzte Sektionstitel, Zwischenüberschriften, Tabellenspalten und Statuswerte
+- Gilt für alle Ausgabeformate: HTML, PDF und Markdown
 
 ### 🖥️ Hardware & Systeminfos / System Information
 
@@ -108,6 +115,7 @@ automatically and the document title is adjusted accordingly.
 ### 🖱️ GUI
 
 - WPF-Oberfläche zur Auswahl von Hosts, Firmenname und Ausgabepfad
+- Sprachumschalter DE/EN im Kopfbereich
 - Kategorisierte Auswahl aller 58 Dokumentationsbereiche
 - Auswahl der Ausgabeformate direkt in der Oberfläche
 - Automatische Erstellung des Ausgabeverzeichnisses
@@ -231,6 +239,17 @@ $sections = @(
   -NoGui
 ```
 
+### Englischer Report / English Report
+
+```powershell
+.\HyperV_Documentation.ps1 `
+  -HyperVServers @('HV01') `
+  -CompanyName 'Contoso Ltd.' `
+  -Language EN `
+  -OutputFormats @('HTML','PDF') `
+  -NoGui
+```
+
 ---
 
 ## ⚙️ Parameter-Referenz / Parameter Reference
@@ -242,6 +261,7 @@ $sections = @(
 | `OutputPath` | `string` | `C:\HyperVDoku` | Ausgabeverzeichnis / output directory |
 | `OutputFormats` | `string[]` | `@('HTML')` | Ausgabeformate: `HTML`, `PDF`, `Markdown` |
 | `Sections` | `string[]` | (alle / all) | Zu erstellende Dokumentationsbereiche |
+| `Language` | `string` | `DE` | Sprache für GUI, Konsole und Report: `DE` oder `EN` |
 | `ShowGui` | `switch` | - | GUI erzwingen / force GUI |
 | `NoGui` | `switch` | - | GUI unterdrücken / suppress GUI |
 
@@ -404,6 +424,10 @@ A: Nein, es kann auch von einer Management-Station mit RSAT-Hyper-V-Tools ausgef
 **F: Werden Failover-Cluster unterstützt?**
 A: Ja, Cluster werden automatisch erkannt und mit Nodes, Netzwerken, CSV und Quorum
 dokumentiert.
+
+**F: Kann ich die Dokumentation auf Englisch erzeugen?**
+A: Ja, mit `-Language EN` oder über den Sprachumschalter in der GUI. GUI, Konsole,
+Logdatei und Report werden dann in Englisch ausgegeben.
 
 **F: Welche Daten werden übertragen?**
 A: Nur Lesevorgänge auf die Hyper-V-Hosts. Keine Daten verlassen die Umgebung.

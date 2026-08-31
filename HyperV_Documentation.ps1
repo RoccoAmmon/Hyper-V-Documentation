@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Hyper-V Dokumentations-Skript (v1.0 - Windows Server 2016/2019/2022/2025)
+    Hyper-V Dokumentations-Skript (v1.1 - Windows Server 2016/2019/2022/2025)
 .DESCRIPTION
     Erstellt eine umfassende HTML-Dokumentation der gesamten Hyper-V Umgebung.
     Unterstützt Standalone-Hosts und Failover-Cluster (Hyper-V Cluster).
@@ -70,18 +70,26 @@
 .PARAMETER Sections
     Liste der zu erstellenden Sektions-Schlüssel. Leer = alle.
 
+.PARAMETER Language
+    Sprache für GUI, Konsolenausgaben und Report: DE (Deutsch) oder EN (Englisch).
+    Standard: DE
+
 .EXAMPLE
     .\HyperV_Documentation.ps1 -HyperVServers @("HV01","HV02") -CompanyName "Contoso GmbH"
 
 .EXAMPLE
     .\HyperV_Documentation.ps1 -HyperVServers @("HV01") -CompanyName "Meine Firma" -OutputPath "D:\Doku"
 
+.EXAMPLE
+    .\HyperV_Documentation.ps1 -HyperVServers @("HV01") -Language EN -NoGui
+
 .NOTES
     Autor:           Rocco Ammon
-    Version:         1.0
+    Version:         1.1
     Erstellt:        2026-08-31
     Letzte Änderung: 2026-08-31
-    Änderungen:      v1.0 - Erstveröffentlichung (analog zur Exchange-Dokumentation)
+    Änderungen:      v1.1 - Zweisprachigkeit (DE/EN) über -Language inkl. GUI-Umschalter
+                     v1.0 - Erstveröffentlichung (analog zur Exchange-Dokumentation)
     Voraussetzungen: - Hyper-V PowerShell-Modul (RSAT-Hyper-V-Tools)
                      - Optional: FailoverClusters-Modul für Cluster-Dokumentation
                      - Optional: Active Directory PowerShell-Modul
@@ -107,6 +115,10 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Liste der zu erstellenden Sektions-Schlüssel. Leer = alle")]
     [string[]]$Sections,
 
+    [Parameter(Mandatory = $false, HelpMessage = "Sprache für GUI, Konsole und Report: DE oder EN")]
+    [ValidateSet("DE", "EN")]
+    [string]$Language = "DE",
+
     [Parameter(Mandatory = $false, HelpMessage = "GUI zur Auswahl anzeigen (Standard, wenn keine Server angegeben)")]
     [switch]$ShowGui,
 
@@ -124,7 +136,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 )
 
 if (-not $isAdmin) {
-    Write-Host "Das Skript erfordert Administrator-Rechte. Starte neu mit erhöhten Rechten..." -ForegroundColor Yellow
+    Write-Host $(if ($Language -eq "EN") { "The script requires administrator privileges. Restarting elevated..." } else { "Das Skript erfordert Administrator-Rechte. Starte neu mit erhöhten Rechten..." }) -ForegroundColor Yellow
 
     # Sammle alle übergebenen Parameter
     $argumentList = @()
@@ -144,6 +156,9 @@ if (-not $isAdmin) {
     if ($Sections) {
         $argumentList += "-Sections @($(($Sections | ForEach-Object { "'{0}'" -f $_ }) -join ','))"
     }
+    if ($Language) {
+        $argumentList += "-Language '$Language'"
+    }
     if ($ShowGui) {
         $argumentList += "-ShowGui"
     }
@@ -159,7 +174,7 @@ if (-not $isAdmin) {
     exit
 }
 
-Write-Host "Administrator-Rechte bestätigt. Skript wird ausgeführt..." -ForegroundColor Green
+Write-Host $(if ($Language -eq "EN") { "Administrator privileges confirmed. Running script..." } else { "Administrator-Rechte bestätigt. Skript wird ausgeführt..." }) -ForegroundColor Green
 
 #region ============================================================
 # VARIABLEN-DEFINITION
@@ -177,7 +192,8 @@ $script:DocTitle                = "Hyper-V - Umgebungsdokumentation"
 $script:DocSubTitle             = "$CompanyName"
 $script:DocAuthor               = $env:USERNAME
 $script:DocComputerName         = $env:COMPUTERNAME
-$script:ScriptVersion           = "1.0"
+$script:ScriptVersion           = "1.1"
+$script:Language                = $Language
 
 # --- Ausgabeverzeichnis erstellen ---
 try {
@@ -210,6 +226,799 @@ $script:MaxVMsForDetailStats    = 500     # Maximale Anzahl VMs für Detailstati
 $script:MinFreeHostMemoryGB     = 4       # Reserve für das Host-Betriebssystem
 
 #endregion
+
+#region ============================================================
+# LOKALISIERUNG (DE / EN)
+#endregion ============================================================
+
+# Wörterbuch Deutsch -> Englisch. Schlüssel sind exakt die im Skript verwendeten
+# deutschen Texte (Überschriften, Spaltennamen, Statuswerte, Meldungen).
+$script:Dict = @{
+    # --- Kategorien & Sektions-Labels ---
+    "Hardware & OS"                                = "Hardware & OS"
+    "Hyper-V Host"                                 = "Hyper-V Host"
+    "Virtuelle Maschinen"                          = "Virtual Machines"
+    "Virtuelle Netzwerke"                          = "Virtual Networking"
+    "Speicher"                                     = "Storage"
+    "Failover Cluster"                             = "Failover Cluster"
+    "Replikation & Backup"                         = "Replication & Backup"
+    "Sicherheit"                                   = "Security"
+    "Active Directory"                             = "Active Directory"
+
+    "Hardware & Host-Details"                      = "Hardware & host details"
+    "Virtualisierungs-Unterstützung (SLAT)"        = "Virtualization support (SLAT)"
+    "NUMA-Topologie & Spanning"                    = "NUMA topology & spanning"
+    "Windows Features & Rollen"                    = "Windows features & roles"
+    "Installierte Software"                        = "Installed software"
+    "Power Plan & Performance"                     = "Power plan & performance"
+    "Ausstehende Neustarts"                        = "Pending reboots"
+    "Windows Updates & Patch-Stand"                = "Windows updates & patch level"
+    "Speicherplatz & VM-Pfade"                     = "Disk space & VM paths"
+    "Event Logs (7 Tage)"                          = "Event logs (7 days)"
+    "Zeitsynchronisierung (w32tm)"                 = "Time synchronization (w32tm)"
+    "Lizenzierung & Aktivierung"                   = "Licensing & activation"
+    "Hyper-V Host-Konfiguration"                   = "Hyper-V host configuration"
+    "Standardpfade (VHD & VM)"                     = "Default paths (VHD & VM)"
+    "Live Migration & Storage Migration"           = "Live migration & storage migration"
+    "Enhanced Session & Metering"                  = "Enhanced session & metering"
+    "Hyper-V Dienststatus"                         = "Hyper-V service status"
+    "VM-Konfigurationsversionen"                   = "VM configuration versions"
+    "Ressourcenauslastung & Überbuchung"           = "Resource usage & overcommitment"
+    "VM-Übersicht"                                 = "VM overview"
+    "VM Prozessor-Konfiguration"                   = "VM processor configuration"
+    "VM Arbeitsspeicher & Dynamic Memory"          = "VM memory & dynamic memory"
+    "VM Speicher (VHD/VHDX)"                       = "VM storage (VHD/VHDX)"
+    "Integrationsdienste"                          = "Integration services"
+    "Prüfpunkte (Checkpoints)"                     = "Checkpoints"
+    "Firmware / BIOS & Secure Boot"                = "Firmware / BIOS & secure boot"
+    "Automatische Start-/Stop-Aktionen"            = "Automatic start/stop actions"
+    "Controller, DVD & COM-Ports"                  = "Controllers, DVD & COM ports"
+    "VM-Gruppen"                                   = "VM groups"
+    "Gast-Betriebssysteme (KVP)"                   = "Guest operating systems (KVP)"
+    "Ressourcenmessung (Metering)"                 = "Resource metering"
+    "Virtuelle Switches"                           = "Virtual switches"
+    "Virtual Switch Extensions"                    = "Virtual switch extensions"
+    "VM Netzwerkadapter"                           = "VM network adapters"
+    "VLAN, Portsicherheit & ACLs"                  = "VLAN, port security & ACLs"
+    "Host-NICs (VMQ/RSS/SR-IOV/RDMA)"              = "Host NICs (VMQ/RSS/SR-IOV/RDMA)"
+    "Netzwerk-QoS / DCB"                           = "Network QoS / DCB"
+    "Storage-Konfiguration"                        = "Storage configuration"
+    "VHD-Analyse & verwaiste Dateien"              = "VHD analysis & orphaned files"
+    "Storage QoS Policies"                         = "Storage QoS policies"
+    "SMB 3.0 Storage"                              = "SMB 3.0 storage"
+    "MPIO (Multipath I/O)"                         = "MPIO (multipath I/O)"
+    "Cluster-Netzwerke"                            = "Cluster networks"
+    "Cluster Shared Volumes (CSV)"                 = "Cluster shared volumes (CSV)"
+    "Cluster-Quorum"                               = "Cluster quorum"
+    "Hyper-V Replica"                              = "Hyper-V Replica"
+    "Backup & VSS Writer"                          = "Backup & VSS writer"
+    "VM Sicherheit (vTPM / Shielded)"              = "VM security (vTPM / shielded)"
+    "Hyper-V Administratoren"                      = "Hyper-V administrators"
+    "Credential Guard"                             = "Credential Guard"
+    "Host Guardian Service"                        = "Host Guardian Service"
+    "Kerberos-Delegierung"                         = "Kerberos delegation"
+    "Antivirus-Ausschlüsse"                        = "Antivirus exclusions"
+    "Firewall-Konfiguration"                       = "Firewall configuration"
+    "SMBv1 Status (Sicherheit)"                    = "SMBv1 status (security)"
+    "FSMO-Rollen"                                  = "FSMO roles"
+
+    # --- Sektions-Titel im Report ---
+    "Hardware-Informationen & Host-Details"        = "Hardware information & host details"
+    "Virtualisierungs-Unterstützung (SLAT / VT-x / VBS)" = "Virtualization support (SLAT / VT-x / VBS)"
+    "Windows Features &amp; Rollen"                = "Windows features &amp; roles"
+    "Power Plan &amp; Performance"                 = "Power plan &amp; performance"
+    "Windows Updates &amp; Patch-Stand"            = "Windows updates &amp; patch level"
+    "Speicherplatz &amp; VM-Pfade"                 = "Disk space &amp; VM paths"
+    "Event Logs (Fehler/Kritisch, 7 Tage)"         = "Event logs (error/critical, 7 days)"
+    "Lizenzierung &amp; Aktivierung"               = "Licensing &amp; activation"
+    "Standardpfade (VHD &amp; VM-Konfiguration)"   = "Default paths (VHD &amp; VM configuration)"
+    "Live Migration &amp; Storage Migration"       = "Live migration &amp; storage migration"
+    "Enhanced Session Mode &amp; Resource Metering" = "Enhanced session mode &amp; resource metering"
+    "Host-Ressourcenauslastung &amp; Überbuchung"  = "Host resource usage &amp; overcommitment"
+    "Virtuelle Maschinen - Übersicht"              = "Virtual machines - overview"
+    "VM Arbeitsspeicher &amp; Dynamic Memory"      = "VM memory &amp; dynamic memory"
+    "VM Netzwerk - VLAN, Sicherheit &amp; ACLs"    = "VM networking - VLAN, security &amp; ACLs"
+    "VM Firmware / BIOS &amp; Secure Boot"         = "VM firmware / BIOS &amp; secure boot"
+    "VM Sicherheit (vTPM / Shielded VM)"           = "VM security (vTPM / shielded VM)"
+    "VM Controller, DVD &amp; COM-Ports"           = "VM controllers, DVD &amp; COM ports"
+    "Host-Netzwerkadapter (VMQ / RSS / SR-IOV / RDMA)" = "Host network adapters (VMQ / RSS / SR-IOV / RDMA)"
+    "VHD-Detailanalyse &amp; verwaiste Dateien"    = "VHD detail analysis &amp; orphaned files"
+    "Backup &amp; VSS Writer"                      = "Backup &amp; VSS writer"
+    "Host Guardian Service (Guarded Fabric)"       = "Host Guardian Service (guarded fabric)"
+    "Kerberos-Delegierung (Live Migration)"        = "Kerberos delegation (live migration)"
+    "Antivirus-Ausschlüsse (Hyper-V)"              = "Antivirus exclusions (Hyper-V)"
+
+    # --- Zwischenüberschriften (h3 / h4) ---
+    "Aktivierungsstatus"                           = "Activation status"
+    "Alle installierten Features"                  = "All installed features"
+    "Allgemeine Host-Einstellungen"                = "General host settings"
+    "Autorisierungseinträge"                       = "Authorization entries"
+    "Best Practice"                                = "Best practice"
+    "Betriebssystem"                               = "Operating system"
+    "Cluster-Knoten"                               = "Cluster nodes"
+    "Cluster-Ressourcen"                           = "Cluster resources"
+    "Cluster-Rollen"                               = "Cluster roles"
+    "Cluster-Übersicht"                            = "Cluster overview"
+    "COM-Ports (aktiv konfiguriert)"               = "COM ports (actively configured)"
+    "CSV Block Cache"                              = "CSV block cache"
+    "Definierte Migrationsnetzwerke"               = "Defined migration networks"
+    "Diskettenlaufwerke"                           = "Floppy drives"
+    "Dokumentations-Zusammenfassung"               = "Documentation summary"
+    "Domäne &amp; Gesamtstruktur"                  = "Domain &amp; forest"
+    "DVD-Laufwerke"                                = "DVD drives"
+    "Edition &amp; VM-Rechte"                      = "Edition &amp; VM rights"
+    "Empfohlene Dateityp-Ausschlüsse"              = "Recommended file type exclusions"
+    "Empfohlene Hyper-V Ausschlüsse"               = "Recommended Hyper-V exclusions"
+    "Empfohlene Prozess-Ausschlüsse"               = "Recommended process exclusions"
+    "Enhanced Session Mode je VM"                  = "Enhanced session mode per VM"
+    "Erweiterte Port ACLs"                         = "Extended port ACLs"
+    "Firewall-Profile"                             = "Firewall profiles"
+    "Generation 1 - BIOS"                          = "Generation 1 - BIOS"
+    "Generation 2 - UEFI Firmware"                 = "Generation 2 - UEFI firmware"
+    "Hinweis"                                      = "Note"
+    "Hinweis zur Virtualisierungs-Lizenzierung"    = "Note on virtualization licensing"
+    "Host-Einstellungen"                           = "Host settings"
+    "Host-vNICs (Management OS)"                   = "Host vNICs (management OS)"
+    "Hostcomputerkonten"                           = "Host computer accounts"
+    "Hyper-V Dienste"                              = "Hyper-V services"
+    "Hyper-V relevante Rollen &amp; Features"      = "Hyper-V relevant roles &amp; features"
+    "Installierte Antivirenprodukte"               = "Installed antivirus products"
+    "iSCSI Targets"                                = "iSCSI targets"
+    "Kapazität &amp; Überbuchung"                  = "Capacity &amp; overcommitment"
+    "Knoten-Stimmgewichtung"                       = "Node vote weight"
+    "Live Migration Netzwerkpriorität"             = "Live migration network priority"
+    "Logische Laufwerke"                           = "Logical drives"
+    "Microsoft Defender Status"                    = "Microsoft Defender status"
+    "Migrationseinstellungen"                      = "Migration settings"
+    "MPIO-Einstellungen"                           = "MPIO settings"
+    "MPIO-fähige Hardware"                         = "MPIO-capable hardware"
+    "Netzwerkkonfiguration (IP)"                   = "Network configuration (IP)"
+    "Netzwerkschnittstellen der Knoten"            = "Node network interfaces"
+    "NIC-Teaming (LBFO)"                           = "NIC teaming (LBFO)"
+    "NUMA Nodes"                                   = "NUMA nodes"
+    "NUMA Spanning"                                = "NUMA spanning"
+    "NUMA-Konfiguration der VMs"                   = "NUMA configuration of the VMs"
+    "Pagefile"                                     = "Page file"
+    "Pass-Through Disks"                           = "Pass-through disks"
+    "Performance Counter (Momentaufnahme)"         = "Performance counters (snapshot)"
+    "Pfad-Ausschlüsse"                             = "Path exclusions"
+    "Physische Datenträger (Disks)"                = "Physical disks"
+    "Physische Festplatten"                        = "Physical hard disks"
+    "Physische Netzwerkadapter"                    = "Physical network adapters"
+    "Physischer Arbeitsspeicher (DIMMs)"           = "Physical memory (DIMMs)"
+    "Port ACLs"                                    = "Port ACLs"
+    "Portsicherheit &amp; erweiterte Features"     = "Port security &amp; advanced features"
+    "Priority Flow Control (PFC)"                  = "Priority flow control (PFC)"
+    "Prozessor(en)"                                = "Processor(s)"
+    "Prüfpunkt-Einstellungen"                      = "Checkpoint settings"
+    "QoS-Richtlinien"                              = "QoS policies"
+    "RDMA (SMB Direct)"                            = "RDMA (SMB Direct)"
+    "Relevante aktive Firewall-Regeln"             = "Relevant active firewall rules"
+    "Replikations-Serverkonfiguration"             = "Replication server configuration"
+    "Replizierte virtuelle Maschinen"              = "Replicated virtual machines"
+    "RSS (Receive Side Scaling)"                   = "RSS (receive side scaling)"
+    "SCSI-Controller"                              = "SCSI controllers"
+    "SMB Multichannel Verbindungen"                = "SMB multichannel connections"
+    "SMB-Client Konfiguration"                     = "SMB client configuration"
+    "SMB-Freigaben"                                = "SMB shares"
+    "SMB-Server Konfiguration"                     = "SMB server configuration"
+    "Speicherpfade der virtuellen Maschinen"       = "Storage paths of the virtual machines"
+    "Standard-Lastverteilungsrichtlinie"           = "Default load balancing policy"
+    "Standardpfade"                                = "Default paths"
+    "Storage Pools"                                = "Storage pools"
+    "Switch Embedded Teaming (SET)"                = "Switch embedded teaming (SET)"
+    "System-Übersicht"                             = "System overview"
+    "Traffic Classes (DCB)"                        = "Traffic classes (DCB)"
+    "Unterstützte Konfigurationsversionen"         = "Supported configuration versions"
+    "Versionen &amp; Status"                       = "Versions &amp; status"
+    "Virtualization Based Security (VBS)"          = "Virtualization based security (VBS)"
+    "Virtuelle Datenträger (Storage Spaces)"       = "Virtual disks (storage spaces)"
+    "Virtuelle Festplatten"                        = "Virtual hard disks"
+    "Virtuelle Fibre Channel Adapter"              = "Virtual fibre channel adapters"
+    "VLAN-Konfiguration"                           = "VLAN configuration"
+    "VMQ (Virtual Machine Queue)"                  = "VMQ (virtual machine queue)"
+    "VMs mit abweichenden Pfaden"                  = "VMs with deviating paths"
+    "Vollständige Cluster-Parameter"               = "Complete cluster parameters"
+    "Vollständige Parameterliste (Get-VMHost)"     = "Complete parameter list (Get-VMHost)"
+    "Volumes"                                      = "Volumes"
+    "Vorhandene Prüfpunkte"                        = "Existing checkpoints"
+    "VSS Writer"                                   = "VSS writer"
+    "w32tm Status"                                 = "w32tm status"
+    "Windows Server Backup"                        = "Windows Server Backup"
+    "Zusammenfassung"                              = "Summary"
+
+    # --- Statuswerte & Hinweistexte ---
+    "Ja"                                           = "Yes"
+    "Nein"                                         = "No"
+    "Aktiviert"                                    = "Enabled"
+    "Deaktiviert"                                  = "Disabled"
+    "Unbekannt"                                    = "Unknown"
+    "Kritisch"                                     = "Critical"
+    "Fehler"                                       = "Error"
+    "Warnung"                                      = "Warning"
+    "Läuft"                                        = "Running"
+    "Standard"                                     = "Default"
+    "Nicht aktiviert"                              = "Not activated"
+    "Nicht ermittelbar"                            = "Cannot be determined"
+    "Nicht für Cluster verwenden"                  = "Do not use for cluster"
+    "Nicht gesetzt (Standard)"                     = "Not set (default)"
+    "Nicht installiert"                            = "Not installed"
+    "Nicht konfiguriert"                           = "Not configured"
+    "Nicht lizenziert"                             = "Not licensed"
+    "Nicht verfügbar"                              = "Not available"
+    "Nicht verfügbar."                             = "Not available."
+    "Nicht verfügbar (WinRM erforderlich)."        = "Not available (WinRM required)."
+    "Kein Cluster (Standalone)"                    = "No cluster (standalone)"
+    "Kein LBFO-Team konfiguriert."                 = "No LBFO team configured."
+    "Kein SET-Team konfiguriert."                  = "No SET team configured."
+    "Kein Zeuge konfiguriert"                      = "No witness configured"
+    "Keine (nur CredSSP möglich)"                  = "None (only CredSSP possible)"
+    "Keine Adapter gefunden."                      = "No adapters found."
+    "Keine Autorisierungseinträge konfiguriert."   = "No authorization entries configured."
+    "Keine Cluster Shared Volumes vorhanden."      = "No cluster shared volumes present."
+    "Keine COM-Ports konfiguriert."                = "No COM ports configured."
+    "Keine Computerkonten gefunden."               = "No computer accounts found."
+    "Keine Daten verfügbar."                       = "No data available."
+    "Keine Datenträger gefunden."                  = "No disks found."
+    "Keine Diskettenimages eingebunden."           = "No floppy images mounted."
+    "Keine DVD-Laufwerke konfiguriert."            = "No DVD drives configured."
+    "Keine erweiterten ACLs konfiguriert."         = "No extended ACLs configured."
+    "Keine Features gefunden."                     = "No features found."
+    "Keine Freigaben vorhanden."                   = "No shares present."
+    "Keine Gastinformationen verfügbar."           = "No guest information available."
+    "Keine Generation-1-VMs vorhanden."            = "No generation 1 VMs present."
+    "Keine Generation-2-VMs vorhanden."            = "No generation 2 VMs present."
+    "Keine Host-vNICs gefunden."                   = "No host vNICs found."
+    "Keine Hyper-V Features gefunden."             = "No Hyper-V features found."
+    "Keine Integrationsdienste gefunden."          = "No integration services found."
+    "Keine iSCSI-Targets konfiguriert."            = "No iSCSI targets configured."
+    "Keine Lizenzinformationen verfügbar."         = "No licensing information available."
+    "Keine MPIO-Hardware erkannt."                 = "No MPIO hardware detected."
+    "Keine Multichannel-Verbindungen aktiv."       = "No multichannel connections active."
+    "Keine Netzwerkadapter gefunden."              = "No network adapters found."
+    "Keine NUMA-Knoten gefunden."                  = "No NUMA nodes found."
+    "Keine Pass-Through Disks konfiguriert."       = "No pass-through disks configured."
+    "Keine Pfad-Ausschlüsse konfiguriert."         = "No path exclusions configured."
+    "Keine Port-ACLs konfiguriert."                = "No port ACLs configured."
+    "Keine Prüfpunkte vorhanden."                  = "No checkpoints present."
+    "Keine QoS-Richtlinien konfiguriert."          = "No QoS policies configured."
+    "Keine relevanten Regeln gefunden."            = "No relevant rules found."
+    "Keine Replikationen konfiguriert."            = "No replications configured."
+    "Keine SCSI-Controller gefunden."              = "No SCSI controllers found."
+    "Keine Software gefunden."                     = "No software found."
+    "Keine spezielle Reihenfolge konfiguriert."    = "No specific order configured."
+    "Keine Storage Pools vorhanden."               = "No storage pools present."
+    "Keine Storage QoS Policies konfiguriert."     = "No storage QoS policies configured."
+    "Keine Switch-Erweiterungen gefunden."         = "No switch extensions found."
+    "Keine Traffic Classes konfiguriert."          = "No traffic classes configured."
+    "Keine Updates gefunden."                      = "No updates found."
+    "Keine virtuellen Datenträger vorhanden."      = "No virtual disks present."
+    "Keine virtuellen FC-Adapter konfiguriert."    = "No virtual FC adapters configured."
+    "Keine virtuellen Festplatten gefunden."       = "No virtual hard disks found."
+    "Keine virtuellen Switches gefunden."          = "No virtual switches found."
+    "Keine VLAN-Konfiguration gefunden."           = "No VLAN configuration found."
+    "Keine VM-Gruppen konfiguriert."               = "No VM groups configured."
+    "Keine VMs auf diesem Host."                   = "No VMs on this host."
+    "Keine VMs gefunden."                          = "No VMs found."
+    "Keine Volumes gefunden."                      = "No volumes found."
+    "Alle VMs verwenden den Standardpfad."         = "All VMs use the default path."
+    "Keine dedizierten Migrationsnetzwerke definiert." = "No dedicated migration networks defined."
+    "PFC nicht konfiguriert."                      = "PFC not configured."
+    "Keine kritischen Ereignisse in den letzten 7 Tagen gefunden." = "No critical events found in the last 7 days."
+    "Keine VBS-Informationen verfügbar."           = "No VBS information available."
+    "Keine Verbindung möglich."                    = "No connection possible."
+    "Keine Verbindung möglich (weder WsMan noch DCOM). Bitte Netzwerk/Firewall prüfen." = "No connection possible (neither WsMan nor DCOM). Please check network/firewall."
+    "Keine VHD/VHDX-Dateien im Standardpfad gefunden oder Zugriff nicht möglich." = "No VHD/VHDX files found in the default path or access not possible."
+    "Keine Produkte über SecurityCenter2 registriert (bei Server-Betriebssystemen normal)." = "No products registered via SecurityCenter2 (normal on server operating systems)."
+    "Das ActiveDirectory-Modul ist nicht verfügbar." = "The ActiveDirectory module is not available."
+    "Das ActiveDirectory-Modul ist nicht verfügbar - Delegierung konnte nicht geprüft werden." = "The ActiveDirectory module is not available - delegation could not be checked."
+    "Das Modul FailoverClusters ist nicht verfügbar. Cluster-Dokumentation wurde übersprungen." = "The FailoverClusters module is not available. Cluster documentation was skipped."
+    "Modul FailoverClusters nicht verfügbar."      = "FailoverClusters module not available."
+    "Kein Failover-Cluster erkannt (Standalone-Host) oder keine Berechtigung." = "No failover cluster detected (standalone host) or no permission."
+    "Kein Failover-Cluster erkannt oder keine CSVs vorhanden." = "No failover cluster detected or no CSVs present."
+    "Kein Failover-Cluster erkannt."               = "No failover cluster detected."
+    "Firewall-Informationen konnten nicht abgefragt werden (WinRM erforderlich)." = "Firewall information could not be queried (WinRM required)."
+    "Netzwerkadapter-Details konnten nicht abgefragt werden (WinRM erforderlich)." = "Network adapter details could not be queried (WinRM required)."
+    "QoS-Informationen konnten nicht abgefragt werden (WinRM / DCB-Feature erforderlich)." = "QoS information could not be queried (WinRM / DCB feature required)."
+    "SMB-Informationen konnten nicht abgefragt werden (WinRM erforderlich)." = "SMB information could not be queried (WinRM required)."
+    "Storage-Informationen konnten nicht abgefragt werden (WinRM erforderlich)." = "Storage information could not be queried (WinRM required)."
+    "Windows Features konnten nicht abgefragt werden (WinRM erforderlich)." = "Windows features could not be queried (WinRM required)."
+    "Zeitkonfiguration konnte nicht abgefragt werden (WinRM erforderlich)." = "Time configuration could not be queried (WinRM required)."
+    "Host Guardian Service Client ist nicht installiert bzw. nicht konfiguriert (kein Guarded Fabric)." = "Host Guardian Service client is not installed or not configured (no guarded fabric)."
+    "Microsoft Defender ist nicht installiert oder nicht abfragbar (Drittanbieter-AV möglich)." = "Microsoft Defender is not installed or cannot be queried (third-party AV possible)."
+    "MPIO ist nicht installiert oder nicht abfragbar." = "MPIO is not installed or cannot be queried."
+    "Windows Server Backup ist nicht installiert oder nicht abfragbar." = "Windows Server Backup is not installed or cannot be queried."
+    "SMBv1 gilt als unsicher und sollte auf Hyper-V Hosts deaktiviert sein." = "SMBv1 is considered insecure and should be disabled on Hyper-V hosts."
+
+    # --- Tabellen-Spaltennamen ---
+    "Adaptername"                                  = "Adapter name"
+    "Adresse"                                      = "Address"
+    "Akt. Takt (MHz)"                              = "Current clock (MHz)"
+    "Aktion"                                       = "Action"
+    "Aktuelle Zeit"                                = "Current time"
+    "Alle Server zugelassen"                       = "All servers allowed"
+    "Alter (Tage)"                                 = "Age (days)"
+    "Angehalten"                                   = "Paused"
+    "Angeschl. Geräte"                             = "Connected devices"
+    "Antivirus aktiviert"                          = "Antivirus enabled"
+    "Anzahl Knoten"                                = "Number of nodes"
+    "Anzahl vCPU"                                  = "Number of vCPUs"
+    "Anzahl Versionen"                             = "Number of versions"
+    "Anzahl VHDs"                                  = "Number of VHDs"
+    "Anzahl VMs auf Host"                          = "Number of VMs on host"
+    "Anzeigename"                                  = "Display name"
+    "Architektur"                                  = "Architecture"
+    "Ausgehend (Standard)"                         = "Outbound (default)"
+    "Ausgeschaltet"                                = "Powered off"
+    "Authentifizierung"                            = "Authentication"
+    "Authentifizierungstyp"                        = "Authentication type"
+    "Auto Metrik"                                  = "Auto metric"
+    "Automatische Prüfpunkte"                      = "Automatic checkpoints"
+    "Bandbreite (%)"                               = "Bandwidth (%)"
+    "Bandbreitenmodus"                             = "Bandwidth mode"
+    "Basis-Prozessor"                              = "Base processor"
+    "Bedarf (Demand)"                              = "Demand"
+    "Belegt auf Disk"                              = "Used on disk"
+    "Belegt_%"                                     = "Used_%"
+    "Belegter Speicher"                            = "Used memory"
+    "Beliebiges Netzwerk verwenden"                = "Use any network"
+    "Bereitstellung"                               = "Provisioning"
+    "Beschreibung"                                 = "Description"
+    "Besitzergruppe"                               = "Owner group"
+    "Besitzerknoten"                               = "Owner node"
+    "Betriebsstatus"                               = "Operational status"
+    "Betriebszeit"                                 = "Uptime"
+    "Bewertung"                                    = "Assessment"
+    "Bewertung Authentifizierung"                  = "Assessment authentication"
+    "Bewertung CPU"                                = "Assessment CPU"
+    "Bewertung Netzwerk"                           = "Assessment network"
+    "Bewertung RAM"                                = "Assessment RAM"
+    "Bezeichnung"                                  = "Designation"
+    "Bindung an Host"                              = "Binding to host"
+    "BIOS Datum"                                   = "BIOS date"
+    "BIOS/UEFI Version"                            = "BIOS/UEFI version"
+    "Block Cache Größe (MB)"                       = "Block cache size (MB)"
+    "Blockgröße"                                   = "Block size"
+    "Bootreihenfolge"                              = "Boot order"
+    "Bustyp"                                       = "Bus type"
+    "Checkpointpfad"                               = "Checkpoint path"
+    "Cluster-Funktionsebene"                       = "Cluster functional level"
+    "Clustername"                                  = "Cluster name"
+    "Controller-Nummer"                            = "Controller number"
+    "CPU-Auslastung %"                             = "CPU usage %"
+    "Credential Guard Status"                      = "Credential Guard status"
+    "Datei"                                        = "File"
+    "Dateisystem"                                  = "File system"
+    "Dateityp"                                     = "File type"
+    "Delegierung zu"                               = "Delegation to"
+    "DEP (NX/XD) verfügbar"                        = "DEP (NX/XD) available"
+    "DEP für Treiber aktiv"                        = "DEP for drivers active"
+    "Dienstname"                                   = "Service name"
+    "Disk Nr."                                     = "Disk no."
+    "Domäne"                                       = "Domain"
+    "Domäne (DNS)"                                 = "Domain (DNS)"
+    "Domänencontroller"                            = "Domain controller"
+    "Domänenmodus"                                 = "Domain mode"
+    "Drain-Status"                                 = "Drain status"
+    "Drosselung (bps)"                             = "Throttling (bps)"
+    "Durchschn. CPU (MHz)"                         = "Avg. CPU (MHz)"
+    "Durchschn. RAM (MB)"                          = "Avg. RAM (MB)"
+    "Dyn. Gewicht"                                 = "Dyn. weight"
+    "Dyn. Speicher"                                = "Dyn. memory"
+    "Dynamische MAC"                               = "Dynamic MAC"
+    "Dynamisches Quorum"                           = "Dynamic quorum"
+    "Echtzeitschutz"                               = "Real-time protection"
+    "Eingehend (MB)"                               = "Inbound (MB)"
+    "Eingehend (Standard)"                         = "Inbound (default)"
+    "Empfangsqueues"                               = "Receive queues"
+    "Energiesparplan"                              = "Power plan"
+    "Enhanced Session Mode (Host)"                 = "Enhanced session mode (host)"
+    "Enhanced Session Mode Richtlinie (Host)"      = "Enhanced session mode policy (host)"
+    "Erstellt"                                     = "Created"
+    "Erstellt am"                                  = "Created on"
+    "Erweiterung"                                  = "Extension"
+    "Fallback konfiguriert"                        = "Fallback configured"
+    "Fehleranzahl"                                 = "Error count"
+    "Fehlerbehandlung"                             = "Error handling"
+    "Fibre Channel WWPN (Max)"                     = "Fibre channel WWPN (max)"
+    "Fibre Channel WWPN (Min)"                     = "Fibre channel WWPN (min)"
+    "Flow Control aktiv"                           = "Flow control active"
+    "Fragmentierung %"                             = "Fragmentation %"
+    "Frei"                                         = "Free"
+    "Frei %"                                       = "Free %"
+    "Frei_%"                                       = "Free_%"
+    "Frei_GB"                                      = "Free_GB"
+    "Freigabe"                                     = "Share"
+    "Freigabe (Shared)"                            = "Shared"
+    "Gast-Hostname"                                = "Guest host name"
+    "Geclustert"                                   = "Clustered"
+    "Geräte"                                       = "Devices"
+    "Gesamt_GB"                                    = "Total_GB"
+    "Gesamtspeicher (GB)"                          = "Total memory (GB)"
+    "Gesamtstatus"                                 = "Overall status"
+    "Gesamtstruktur"                               = "Forest"
+    "Gesamtstrukturmodus"                          = "Forest mode"
+    "Geschwindigkeit"                              = "Speed"
+    "Gespeichert"                                  = "Saved"
+    "Gewichtung"                                   = "Weight"
+    "Globale Kataloge"                             = "Global catalogs"
+    "Größe"                                        = "Size"
+    "Größe_GB"                                     = "Size_GB"
+    "Gruppe"                                       = "Group"
+    "Gruppen-Mitglieder"                           = "Group members"
+    "Gruppenname"                                  = "Group name"
+    "Guest Services aktiv"                         = "Guest services active"
+    "Hersteller"                                   = "Manufacturer"
+    "Host ist Guarded"                             = "Host is guarded"
+    "Host-RAM gesamt"                              = "Host RAM total"
+    "HW-Threads pro Kern"                          = "HW threads per core"
+    "Hyperthreading"                               = "Hyper-threading"
+    "Hypervisor aktiv"                             = "Hypervisor active"
+    "InitGröße_MB"                                 = "InitSize_MB"
+    "InstallDatum"                                 = "InstallDate"
+    "InstalliertAm"                                = "InstalledOn"
+    "InstalliertVon"                               = "InstalledBy"
+    "Instanz-ID"                                   = "Instance ID"
+    "Integration Services Ver."                    = "Integration services ver."
+    "InterfaceTyp"                                 = "Interface type"
+    "IOV (SR-IOV) Unterstützung"                   = "IOV (SR-IOV) support"
+    "IOV Gewichtung"                               = "IOV weight"
+    "IOV Queue Paare"                              = "IOV queue pairs"
+    "IOV Support Grund"                            = "IOV support reason"
+    "IP-Adressen"                                  = "IP addresses"
+    "IPAdresse"                                    = "IPAddress"
+    "IS Version"                                   = "IS version"
+    "ISO-Pfad"                                     = "ISO path"
+    "Kerberos Port (HTTP)"                         = "Kerberos port (HTTP)"
+    "Kerne"                                        = "Cores"
+    "KMS Server"                                   = "KMS server"
+    "Knoten"                                       = "Node"
+    "Knotengewicht"                                = "Node weight"
+    "Kompatibilität (ältere OS)"                   = "Compatibility (older OS)"
+    "Kompatibilität (Migration)"                   = "Compatibility (migration)"
+    "Komprimierung"                                = "Compression"
+    "Konfiguration"                                = "Configuration"
+    "Konfigurationspfad"                           = "Configuration path"
+    "Konfigurierte Services"                       = "Configured services"
+    "Konsolenmodus"                                = "Console mode"
+    "Konto"                                        = "Account"
+    "Kritische Fehleraktion"                       = "Critical error action"
+    "Lastverteilung"                               = "Load balancing"
+    "Laufend"                                      = "Running"
+    "Laufende Services"                            = "Running services"
+    "Laufwerk"                                     = "Drive"
+    "Legacy CPU Perf. Zähler"                      = "Legacy CPU perf. counter"
+    "Letzte Anmeldung"                             = "Last logon"
+    "Letzte Replikation"                           = "Last replication"
+    "Letzte Sicherung"                             = "Last backup"
+    "Letzter Fehler"                               = "Last error"
+    "LetzterBoot"                                  = "LastBoot"
+    "Letztes Ergebnis"                             = "Last result"
+    "Limit (%)"                                    = "Limit (%)"
+    "Live Migration aktiviert"                     = "Live migration enabled"
+    "Lizenzhinweis"                                = "License note"
+    "Lizenzstatus"                                 = "License status"
+    "Log. Prozessoren"                             = "Log. processors"
+    "Log. Prozessoren gesamt"                      = "Log. processors total"
+    "Logische Proz."                               = "Logical proc."
+    "Logische Prozessoren"                         = "Logical processors"
+    "Logische Prozessoren (Host)"                  = "Logical processors (host)"
+    "Logische Sektorgr."                           = "Logical sector size"
+    "Lokale Adresse"                               = "Local address"
+    "Lokale IP"                                    = "Local IP"
+    "Lokaler Port"                                 = "Local port"
+    "LsaCfgFlags (Richtlinie)"                     = "LsaCfgFlags (policy)"
+    "MAC-Adressbereich (Max)"                      = "MAC address range (max)"
+    "MAC-Adressbereich (Min)"                      = "MAC address range (min)"
+    "MAC-Adresse"                                  = "MAC address"
+    "Management OS teilt Adapter"                  = "Management OS shares adapter"
+    "Max Takt (MHz)"                               = "Max clock (MHz)"
+    "Max. Bandbreite"                              = "Max. bandwidth"
+    "Max. Bandbreite (Abs)"                        = "Max. bandwidth (abs)"
+    "Max. gleichzeitige Storage-Migrationen"       = "Max. concurrent storage migrations"
+    "Max. gleichzeitige VM-Migrationen"            = "Max. concurrent VM migrations"
+    "Max. Größe"                                   = "Max. size"
+    "Max. IOPS (QoS)"                              = "Max. IOPS (QoS)"
+    "Max. Nodes pro Socket"                        = "Max. nodes per socket"
+    "Max. Nodes/Socket"                            = "Max. nodes/socket"
+    "Max. Proz. pro NUMA-Node"                     = "Max. proc. per NUMA node"
+    "Max. Prozessor"                               = "Max. processor"
+    "Max. Prozessoren"                             = "Max. processors"
+    "Max. Prozessoren/NUMA-Node"                   = "Max. processors/NUMA node"
+    "Max. Queue Pairs"                             = "Max. queue pairs"
+    "Max. RAM (MB)"                                = "Max. RAM (MB)"
+    "MaxGröße_MB"                                  = "MaxSize_MB"
+    "Medientyp"                                    = "Media type"
+    "Meldung"                                      = "Message"
+    "Messzeitraum"                                 = "Measurement period"
+    "Metrik"                                       = "Metric"
+    "Min. Bandbreite (Abs)"                        = "Min. bandwidth (abs)"
+    "Min. Bandbreite (Gew.)"                       = "Min. bandwidth (weight)"
+    "Min. IOPS (QoS)"                              = "Min. IOPS (QoS)"
+    "Min. RAM (MB)"                                = "Min. RAM (MB)"
+    "Mitglied"                                     = "Member"
+    "Mitglieder"                                   = "Members"
+    "Modell"                                       = "Model"
+    "Modus"                                        = "Mode"
+    "Monitoring Intervall"                         = "Monitoring interval"
+    "Monitoring Startzeit"                         = "Monitoring start time"
+    "Nächste Sicherung"                            = "Next backup"
+    "NetBIOS-Name"                                 = "NetBIOS name"
+    "Netzwerk"                                     = "Network"
+    "Netzwerkadressen"                             = "Network addresses"
+    "Notizen"                                      = "Notes"
+    "Num Lock aktiviert"                           = "Num lock enabled"
+    "NUMA Spanning aktiviert"                      = "NUMA spanning enabled"
+    "OS Version"                                   = "OS version"
+    "Partitionen"                                  = "Partitions"
+    "Partitionsstil"                               = "Partition style"
+    "Pause nach Boot-Fehler"                       = "Pause after boot failure"
+    "Perfmon Zähler (PMU)"                         = "Perfmon counter (PMU)"
+    "Performance-Option"                           = "Performance option"
+    "Pfad"                                         = "Path"
+    "Phys. Prozessoren"                            = "Phys. processors"
+    "Physische Sektorgr."                          = "Physical sector size"
+    "Physischer Adapter"                           = "Physical adapter"
+    "Pipe-Pfad"                                    = "Pipe path"
+    "Pool-Belegung"                                = "Pool usage"
+    "Primärserver"                                 = "Primary server"
+    "Priorität"                                    = "Priority"
+    "Produkt"                                      = "Product"
+    "Profil"                                       = "Profile"
+    "Protokoll"                                    = "Protocol"
+    "Protokolldatei"                               = "Log file"
+    "Protokollübergang"                            = "Log transition"
+    "Prozess"                                      = "Process"
+    "Prozessor"                                    = "Processor"
+    "Prozessor-Auslastung"                         = "Processor usage"
+    "Prozessorarchitektur"                         = "Processor architecture"
+    "Prozessoren (Anzahl)"                         = "Processors (count)"
+    "Prüfpunkt"                                    = "Checkpoint"
+    "Prüfpunkte"                                   = "Checkpoints"
+    "Prüfpunkte aktiviert"                         = "Checkpoints enabled"
+    "Prüfpunktpfad"                                = "Checkpoint path"
+    "Puffer (%)"                                   = "Buffer (%)"
+    "PXE Netzwerkadapter"                          = "PXE network adapter"
+    "Quelle"                                       = "Source"
+    "Quorum-Typ"                                   = "Quorum type"
+    "RAM an VMs zugewiesen"                        = "RAM assigned to VMs"
+    "RAM Startwert"                                = "RAM startup value"
+    "RAM zugewiesen"                               = "RAM assigned"
+    "RAM_Belegt_%"                                 = "RAM_Used_%"
+    "RAM_Frei_GB"                                  = "RAM_Free_GB"
+    "RAM_Gesamt_GB"                                = "RAM_Total_GB"
+    "RAM-Auslastung durch VMs"                     = "RAM usage by VMs"
+    "RDMA aktiviert"                               = "RDMA enabled"
+    "Regel"                                        = "Rule"
+    "Relative Gewichtung"                          = "Relative weight"
+    "Replikat-Server aktiviert"                    = "Replica server enabled"
+    "Replikation zugelassen von"                   = "Replication allowed from"
+    "Replikationsfrequenz (s)"                     = "Replication frequency (s)"
+    "Replikatserver"                               = "Replica server"
+    "Reserve (%)"                                  = "Reserve (%)"
+    "Resilienz"                                    = "Resiliency"
+    "Resource Metering Intervall"                  = "Resource metering interval"
+    "Resource Metering Speicherintervall"          = "Resource metering save interval"
+    "Ressource"                                    = "Resource"
+    "Richtlinie"                                   = "Policy"
+    "Richtung"                                     = "Direction"
+    "Rolle"                                        = "Role"
+    "RSS aktiviert"                                = "RSS enabled"
+    "S2D aktiviert"                                = "S2D enabled"
+    "SAN-Name"                                     = "SAN name"
+    "Schnittstelle"                                = "Interface"
+    "Secure Boot Vorlage"                          = "Secure boot template"
+    "Seriennummer"                                 = "Serial number"
+    "SET (Embedded Teaming)"                       = "SET (embedded teaming)"
+    "Shared Volumes Root"                          = "Shared volumes root"
+    "Sicherungsrichtlinie vorhanden"               = "Backup policy present"
+    "Signatur"                                     = "Signature"
+    "Signatur aktualisiert"                        = "Signature updated"
+    "SignaturDatum"                                = "SignatureDate"
+    "Signaturversion"                              = "Signature version"
+    "SLAT (EPT/NPT)"                               = "SLAT (EPT/NPT)"
+    "Smart Paging aktiv"                           = "Smart paging active"
+    "Smart Paging Pfad"                            = "Smart paging path"
+    "SMB Server Protokoll"                         = "SMB server protocol"
+    "Sockel"                                       = "Socket"
+    "Software"                                     = "Software"
+    "Spalten"                                      = "Columns"
+    "Speicher belegt (%)"                          = "Memory used (%)"
+    "Speicher gesamt (MB)"                         = "Memory total (MB)"
+    "Speicher verfügbar (MB)"                      = "Memory available (MB)"
+    "Speicherkapazität"                            = "Storage capacity"
+    "Speicherort"                                  = "Location"
+    "Speicherstatus"                               = "Memory status"
+    "SR-IOV aktiv"                                 = "SR-IOV active"
+    "SR-IOV aktiviert"                             = "SR-IOV enabled"
+    "SR-IOV Grund"                                 = "SR-IOV reason"
+    "Standard-Mindestbandbreite (abs)"             = "Default minimum bandwidth (abs)"
+    "Standard-Mindestbandbreite (Gew.)"            = "Default minimum bandwidth (weight)"
+    "Standard-Resilienz"                           = "Default resiliency"
+    "Standard-Speicherort"                         = "Default location"
+    "Standorte"                                    = "Sites"
+    "Start-Aktion"                                 = "Start action"
+    "Startspeicher"                                = "Startup memory"
+    "Starttyp"                                     = "Startup type"
+    "Startverzögerung (s)"                         = "Start delay (s)"
+    "Status (hex)"                                 = "Status (hex)"
+    "Steckplatz"                                   = "Slot"
+    "Stimmgewicht"                                 = "Vote weight"
+    "Stop-Aktion"                                  = "Stop action"
+    "Subnetz"                                      = "Subnet"
+    "Subnetzmaske"                                 = "Subnet mask"
+    "Takt_MHz"                                     = "Clock_MHz"
+    "Team-Mitglieder"                              = "Team members"
+    "Teaming-Modus"                                = "Teaming mode"
+    "Teil-Key"                                     = "Partial key"
+    "Teilenummer"                                  = "Part number"
+    "Timeout Fehleraktion"                         = "Timeout error action"
+    "Treiberdatum"                                 = "Driver date"
+    "Treiberversion"                               = "Driver version"
+    "Trunk VLAN-Liste"                             = "Trunk VLAN list"
+    "Typ"                                          = "Type"
+    "Übergeordnet"                                 = "Parent"
+    "Übergeordnet (Parent)"                        = "Parent"
+    "Uneingeschränkte Delegierung"                 = "Unconstrained delegation"
+    "Unterstützung"                                = "Support"
+    "Upgrade-Version"                              = "Upgrade version"
+    "Uptime_Tage"                                  = "Uptime_days"
+    "VBS aktiviert (Registry)"                     = "VBS enabled (registry)"
+    "VBS Status"                                   = "VBS status"
+    "vCPU : pCPU Verhältnis"                       = "vCPU : pCPU ratio"
+    "vCPUs zugewiesen (laufend)"                   = "vCPUs assigned (running)"
+    "Verbindungsstatus"                            = "Connection status"
+    "Verbleibend (Tage)"                           = "Remaining (days)"
+    "Verbunden"                                    = "Connected"
+    "Verbundene VMs"                               = "Connected VMs"
+    "Verfügbare Sicherheits-EIG"                   = "Available security features"
+    "Verfügbare VM-Queues"                         = "Available VM queues"
+    "Verschlüsselt"                                = "Encrypted"
+    "Vertrauensgruppe"                             = "Trust group"
+    "Virtualisiert"                                = "Virtualized"
+    "Virtualisierung"                              = "Virtualization"
+    "Virtualisierung in Firmware"                  = "Virtualization in firmware"
+    "Virtueller Switch"                            = "Virtual switch"
+    "VLAN-Modus"                                   = "VLAN mode"
+    "VM Migration aktiviert"                       = "VM migration enabled"
+    "VM-Mitglieder"                                = "VM members"
+    "VM-Pfad"                                      = "VM path"
+    "VM-Version"                                   = "VM version"
+    "VMMQ aktiviert"                               = "VMMQ enabled"
+    "VMQ aktiviert"                                = "VMQ enabled"
+    "VMQ Gewichtung"                               = "VMQ weight"
+    "VMs gesamt"                                   = "VMs total"
+    "VMs laufend"                                  = "VMs running"
+    "vNIC (Host)"                                  = "vNIC (host)"
+    "Vollduplex"                                   = "Full duplex"
+    "Volumenname"                                  = "Volume name"
+    "Vorlage"                                      = "Template"
+    "VRSS aktiviert"                               = "VRSS enabled"
+    "VSS-Snapshot Frequenz"                        = "VSS snapshot frequency"
+    "vTPM aktiviert"                               = "vTPM enabled"
+    "Wert"                                         = "Value"
+    "Wiederherstellungspunkte"                     = "Recovery points"
+    "Zähler"                                       = "Counter"
+    "Zeit"                                         = "Time"
+    "Zeitplan"                                     = "Schedule"
+    "Zeitpunkt"                                    = "Timestamp"
+    "Zeitquelle"                                   = "Time source"
+    "Zeitzone"                                     = "Time zone"
+    "Zertifikat Port (HTTPS)"                      = "Certificate port (HTTPS)"
+    "Zertifikat Thumbprint"                        = "Certificate thumbprint"
+    "Zeugen-Ressource"                             = "Witness resource"
+    "Zugewiesen"                                   = "Assigned"
+    "Zugewiesen (aktuell)"                         = "Assigned (current)"
+    "Zuletzt geändert"                             = "Last modified"
+    "Zuordnung"                                    = "Assignment"
+    "Zuordnungseinheit"                            = "Allocation unit"
+    "Zustand"                                      = "State"
+    "Zustand &amp; Migration verschlüsselt"        = "State &amp; migration encrypted"
+
+    # --- Dokumentrahmen ---
+    "Hyper-V - Umgebungsdokumentation"             = "Hyper-V - Environment Documentation"
+    "Inhaltsverzeichnis"                           = "Table of contents"
+    "Dokumentierte Hosts"                          = "Documented hosts"
+    "Host-Betriebssystem"                          = "Host operating system"
+    "Erstellt von"                                 = "Created by"
+    "Sektionen"                                    = "Sections"
+    "Warnungen"                                    = "Warnings"
+    "auf"                                          = "on"
+
+    # --- GUI ---
+    "Hyper-V Dokumentation"                        = "Hyper-V Documentation"
+    "Host · VMs · Netzwerke · Speicher · Cluster · Replica · Multi-Format Export" = "Host · VMs · Networking · Storage · Cluster · Replica · Multi-format export"
+    "Hyper-V Hosts"                                = "Hyper-V hosts"
+    "Alle auswählen"                               = "Select all"
+    "Organisation"                                 = "Organization"
+    "Ausgabepfad"                                  = "Output path"
+    "Ausgabeformate"                               = "Output formats"
+    "Dokumentationsbereiche"                       = "Documentation sections"
+    "Abbrechen"                                    = "Cancel"
+    "  🚀  Dokumentation starten"                  = "  🚀  Start documentation"
+    "Ausgabeverzeichnis wählen"                    = "Select output directory"
+    "Fehler: Bitte mindestens einen Hyper-V Host auswählen." = "Error: Please select at least one Hyper-V host."
+    "Fehler: Bitte einen Ausgabepfad angeben."     = "Error: Please specify an output path."
+    "Fehler: Bitte mindestens einen Dokumentationsbereich auswählen." = "Error: Please select at least one documentation section."
+    "Fehler: Bitte mindestens ein Ausgabeformat wählen." = "Error: Please select at least one output format."
+
+    # --- Konsole & Log ---
+    "Administrator-Rechte bestätigt. Skript wird ausgeführt..." = "Administrator privileges confirmed. Running script..."
+    "Das Skript erfordert Administrator-Rechte. Starte neu mit erhöhten Rechten..." = "The script requires administrator privileges. Restarting elevated..."
+    "Abgebrochen durch Benutzer (GUI)."            = "Cancelled by user (GUI)."
+    "Keine Hyper-V Hosts angegeben. Bitte -HyperVServers verwenden oder die GUI nutzen." = "No Hyper-V hosts specified. Please use -HyperVServers or the GUI."
+    "Ausgabeverzeichnis erstellt"                  = "Output directory created"
+    "Hyper-V Dokumentation gestartet"              = "Hyper-V documentation started"
+    "Zielhosts"                                    = "Target hosts"
+    "Ausgabepfad:"                                 = "Output path:"
+    "Ausgabeformate:"                              = "Output formats:"
+    "Gewählte Sektionen"                           = "Selected sections"
+    "Verbindungsmodus: CIM mit automatischem DCOM Fallback" = "Connection mode: CIM with automatic DCOM fallback"
+    "Hyper-V PowerShell-Modul nicht verfügbar. Skript wird beendet." = "Hyper-V PowerShell module not available. Script will exit."
+    "Hyper-V PowerShell-Modul nicht verfügbar. Bitte RSAT-Hyper-V-Tools installieren." = "Hyper-V PowerShell module not available. Please install RSAT-Hyper-V-Tools."
+    "=== Prüfe Erreichbarkeit der Hosts ==="       = "=== Checking host reachability ==="
+    "=== Starte Datensammlung"                     = "=== Starting data collection"
+    "=== Generiere HTML-Dokument ==="              = "=== Generating HTML document ==="
+    "=== Generiere PDF-Dokument ==="               = "=== Generating PDF document ==="
+    "=== Generiere Markdown-Dokument ==="          = "=== Generating Markdown document ==="
+    "Dokumentation erfolgreich erstellt!"          = "Documentation created successfully!"
+    "Log-Datei"                                    = "Log file"
+    "Warnungen:"                                   = "Warnings:"
+    "Hyper-V Dokumentation abgeschlossen!"         = "Hyper-V documentation completed!"
+    "Dokumentation jetzt oeffnen? (J/N)"           = "Open documentation now? (Y/N)"
+    "Kritischer Fehler! Details:"                  = "Critical error! Details:"
+    "Skript beendet um"                            = "Script finished at"
+}
+
+function Get-T {
+    <#
+    .SYNOPSIS
+        Übersetzt einen deutschen Text in die aktive Sprache.
+        Unbekannte Texte werden unverändert zurückgegeben.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false, Position = 0)]
+        [AllowEmptyString()]
+        [AllowNull()]
+        [string]$Text
+    )
+
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+    if ($script:Language -eq "DE") { return $Text }
+    if ($script:Dict.ContainsKey($Text)) { return $script:Dict[$Text] }
+    return $Text
+}
+
+function ConvertTo-LocalizedHtml {
+    <#
+    .SYNOPSIS
+        Übersetzt Überschriften und Hinweistexte innerhalb eines HTML-Fragments.
+        Datenzellen bleiben unangetastet.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowEmptyString()]
+        [string]$Html
+    )
+
+    if ($script:Language -eq "DE" -or [string]::IsNullOrEmpty($Html)) { return $Html }
+
+    $evaluator = { param($m) $m.Groups[1].Value + (Get-T $m.Groups[2].Value) + $m.Groups[3].Value }
+
+    foreach ($pattern in @(
+        '(<h3(?:\s[^>]*)?>)([^<]+)(</h3>)',
+        '(<h4(?:\s[^>]*)?>)([^<]+)(</h4>)',
+        "(<p class='no-data'>)([^<]+)(</p>)",
+        "(<p class='info'>)([^<]+)(</p>)",
+        '(<strong>)([^<]+)(</strong>)'
+    )) {
+        $Html = [regex]::Replace($Html, $pattern, $evaluator)
+    }
+
+    return $Html
+}
 
 #region ============================================================
 # HILFSFUNKTIONEN
@@ -291,6 +1100,10 @@ function New-HTMLSection {
     $script:SectionCounter++
     $anchorId = "section_$($script:SectionCounter)"
 
+    $Title    = Get-T $Title
+    $Category = Get-T $Category
+    $Content  = ConvertTo-LocalizedHtml -Html $Content
+
     # Inhaltsverzeichnis-Eintrag
     [void]$script:TOCEntries.Add(@{
         Title    = $Title
@@ -342,7 +1155,7 @@ function ConvertTo-HTMLTable {
     if ($Data) { $Data = @($Data | Where-Object { $null -ne $_ }) }
 
     if (-not $Data -or $Data.Count -eq 0) {
-        return "<p class='no-data'>$NoDataMessage</p>"
+        return "<p class='no-data'>$(Get-T $NoDataMessage)</p>"
     }
 
     try {
@@ -356,7 +1169,7 @@ function ConvertTo-HTMLTable {
         $headers = $Data[0].PSObject.Properties.Name
         $headerStyle = if ($HeaderColor) { " style='background-color: $HeaderColor; color: white;'" } else { "" }
         foreach ($header in $headers) {
-            $html += "<th$headerStyle>$header</th>"
+            $html += "<th$headerStyle>$(Get-T $header)</th>"
         }
         $html += "</tr>`n</thead>`n<tbody>`n"
 
@@ -372,7 +1185,7 @@ function ConvertTo-HTMLTable {
                 if ($header -eq "Link") {
                     $html += "<td>$value</td>"
                 } else {
-                    $html += "<td>$([System.Web.HttpUtility]::HtmlEncode($value.ToString()))</td>"
+                    $html += "<td>$([System.Web.HttpUtility]::HtmlEncode((Get-T $value.ToString())))</td>"
                 }
             }
             $html += "</tr>`n"
@@ -610,7 +1423,7 @@ function ConvertTo-DisplayValue {
     )
 
     if ($null -eq $Value) { return $EmptyText }
-    if ($Value -is [bool]) { return $(if ($Value) { "Ja" } else { "Nein" }) }
+    if ($Value -is [bool]) { return $(if ($Value) { Get-T "Ja" } else { Get-T "Nein" }) }
     if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
         $items = @($Value | Where-Object { $null -ne $_ })
         if ($items.Count -eq 0) { return $EmptyText }
@@ -4867,7 +5680,7 @@ function Build-HTMLDocument {
 
     # Inhaltsverzeichnis (nach Category + Title sortiert)
     $sortedTOC = $script:TOCEntries | Sort-Object { $_.Category }, { $_.Title }
-    $tocHTML = "<div class='toc'>`n<h2>Inhaltsverzeichnis</h2>`n<ul>"
+    $tocHTML = "<div class='toc'>`n<h2>$(Get-T 'Inhaltsverzeichnis')</h2>`n<ul>"
     $lastCategory = ""
     foreach ($entry in $sortedTOC) {
         if ($entry.Category -and $entry.Category -ne $lastCategory) {
@@ -4883,26 +5696,26 @@ function Build-HTMLDocument {
     # Zusammenfassung
     $summaryHTML = @"
     <div class="summary-box">
-        <h3>Dokumentations-Zusammenfassung</h3>
-        <p><strong>Dokumentierte Hosts:</strong> $($HyperVServers -join ', ')</p>
-        <p><strong>Host-Betriebssystem:</strong> $script:HyperVEdition</p>
-        <p><strong>Failover-Cluster:</strong> $(if ($script:ClusterName) { $script:ClusterName } else { "Kein Cluster (Standalone)" })</p>
-        <p><strong>Erstellt am:</strong> $script:Timestamp</p>
-        <p><strong>Erstellt von:</strong> $script:DocAuthor auf $script:DocComputerName</p>
-        <p><strong>Sektionen:</strong> $($script:SectionCounter)</p>
-        <p><strong>Fehler:</strong> $($script:ErrorCount)</p>
-        <p><strong>Warnungen:</strong> $($script:WarningCount)</p>
+        <h3>$(Get-T 'Dokumentations-Zusammenfassung')</h3>
+        <p><strong>$(Get-T 'Dokumentierte Hosts'):</strong> $($HyperVServers -join ', ')</p>
+        <p><strong>$(Get-T 'Host-Betriebssystem'):</strong> $script:HyperVEdition</p>
+        <p><strong>$(Get-T 'Failover Cluster'):</strong> $(if ($script:ClusterName) { $script:ClusterName } else { Get-T "Kein Cluster (Standalone)" })</p>
+        <p><strong>$(Get-T 'Erstellt am'):</strong> $script:Timestamp</p>
+        <p><strong>$(Get-T 'Erstellt von'):</strong> $script:DocAuthor $(Get-T 'auf') $script:DocComputerName</p>
+        <p><strong>$(Get-T 'Sektionen'):</strong> $($script:SectionCounter)</p>
+        <p><strong>$(Get-T 'Fehler'):</strong> $($script:ErrorCount)</p>
+        <p><strong>$(Get-T 'Warnungen'):</strong> $($script:WarningCount)</p>
     </div>
 "@
 
     # Gesamtes HTML-Dokument
     $fullHTML = @"
 <!DOCTYPE html>
-<html lang="de">
+<html lang="$(if ($script:Language -eq 'EN') { 'en' } else { 'de' })">
 <head>
     <meta charset="UTF-8">
     <meta name="author" content="$script:DocAuthor">
-    <meta name="generator" content="Hyper-V Dokumentations-Skript v$script:ScriptVersion">
+    <meta name="generator" content="Hyper-V Documentation Script v$script:ScriptVersion">
     <title>$script:DocTitle - $script:DocSubTitle</title>
     $cssStyle
 </head>
@@ -4912,9 +5725,9 @@ function Build-HTMLDocument {
         <h1>$script:DocTitle</h1>
         <h2>$script:DocSubTitle</h2>
         <div class="meta">
-            <p>Erstellt am: $script:DateOnly</p>
-            <p>Erstellt von: $script:DocAuthor</p>
-            <p>Dokumentierte Hosts: $($HyperVServers -join ', ')</p>
+            <p>$(Get-T 'Erstellt am'): $script:DateOnly</p>
+            <p>$(Get-T 'Erstellt von'): $script:DocAuthor</p>
+            <p>$(Get-T 'Dokumentierte Hosts'): $($HyperVServers -join ', ')</p>
             <p>Version: $script:ScriptVersion (Hyper-V / CIM-DCOM Fallback)</p>
         </div>
     </div>
@@ -4926,7 +5739,7 @@ function Build-HTMLDocument {
     $($script:HTMLSections -join "`n`n")
 
     <div class="footer">
-        <p>$script:DocTitle | $script:DocSubTitle | Erstellt: $script:Timestamp | PowerShell Dokumentation v$script:ScriptVersion</p>
+        <p>$script:DocTitle | $script:DocSubTitle | $(Get-T 'Erstellt am'): $script:Timestamp | PowerShell Documentation v$script:ScriptVersion</p>
     </div>
 
 </body>
@@ -5102,23 +5915,23 @@ function Build-MarkdownDocument {
     .SYNOPSIS
         Baut ein Markdown-Dokument aus den gesammelten HTML-Sektionen.
     #>
-    Write-Log -Message "=== Erstelle Markdown-Dokument ===" -Level "INFO"
+    Write-Log -Message (Get-T "=== Generiere Markdown-Dokument ===") -Level "INFO"
 
     $sb = [System.Text.StringBuilder]::new()
     [void]$sb.AppendLine("# $script:DocTitle")
     [void]$sb.AppendLine()
     [void]$sb.AppendLine("**$script:DocSubTitle**")
     [void]$sb.AppendLine()
-    [void]$sb.AppendLine("- Erstellt am: $script:DateOnly")
-    [void]$sb.AppendLine("- Erstellt von: $script:DocAuthor auf $script:DocComputerName")
-    [void]$sb.AppendLine("- Dokumentierte Hosts: $($HyperVServers -join ', ')")
-    [void]$sb.AppendLine("- Host-Betriebssystem: $script:HyperVEdition")
-    [void]$sb.AppendLine("- Failover-Cluster: $(if ($script:ClusterName) { $script:ClusterName } else { 'Kein Cluster (Standalone)' })")
-    [void]$sb.AppendLine("- Fehler: $($script:ErrorCount) | Warnungen: $($script:WarningCount)")
+    [void]$sb.AppendLine("- $(Get-T 'Erstellt am'): $script:DateOnly")
+    [void]$sb.AppendLine("- $(Get-T 'Erstellt von'): $script:DocAuthor $(Get-T 'auf') $script:DocComputerName")
+    [void]$sb.AppendLine("- $(Get-T 'Dokumentierte Hosts'): $($HyperVServers -join ', ')")
+    [void]$sb.AppendLine("- $(Get-T 'Host-Betriebssystem'): $script:HyperVEdition")
+    [void]$sb.AppendLine("- $(Get-T 'Failover Cluster'): $(if ($script:ClusterName) { $script:ClusterName } else { Get-T 'Kein Cluster (Standalone)' })")
+    [void]$sb.AppendLine("- $(Get-T 'Fehler'): $($script:ErrorCount) | $(Get-T 'Warnungen'): $($script:WarningCount)")
     [void]$sb.AppendLine()
 
     # Inhaltsverzeichnis (nach Category + Title sortiert)
-    [void]$sb.AppendLine("## Inhaltsverzeichnis")
+    [void]$sb.AppendLine("## $(Get-T 'Inhaltsverzeichnis')")
     [void]$sb.AppendLine()
     $sortedTOC = $script:TOCEntries | Sort-Object { $_.Category }, { $_.Title }
     $lastCategory = ""
@@ -5278,10 +6091,10 @@ function Show-DocumentationGui {
 
     $detectedServers = @($detectedServers | Where-Object { $_ } | Sort-Object -Unique)
 
-    [xml]$xaml = @'
+    $xamlText = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Hyper-V Dokumentation v1.0" Height="920" Width="1120"
+        Title="Hyper-V Dokumentation v1.1" Height="920" Width="1120"
         WindowStartupLocation="CenterScreen" Background="#EDEDF2" ResizeMode="CanResize" MinWidth="900" MinHeight="700"
         FontFamily="Segoe UI, Arial, sans-serif">
     <Window.Resources>
@@ -5560,10 +6373,14 @@ function Show-DocumentationGui {
                     <TextBlock Text="Hyper-V Dokumentation" FontSize="26" FontWeight="SemiBold" Foreground="White"/>
                     <TextBlock Text="Host · VMs · Netzwerke · Speicher · Cluster · Replica · Multi-Format Export" Foreground="#90CAF9" FontSize="13" Margin="0,4,0,0"/>
                 </StackPanel>
-                <!-- Version Badge -->
-                <Border Grid.Column="2" CornerRadius="6" Background="#FFFFFF22" Padding="10,6" Margin="0,0,16,0" VerticalAlignment="Center">
-                    <TextBlock Text="v1.0" Foreground="Black" FontWeight="Bold" FontSize="13"/>
-                </Border>
+                <!-- Version Badge & Sprachumschalter -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,16,0">
+                    <ToggleButton Name="BtnLangDe" Content="DE" Width="48" Style="{StaticResource FormatToggleStyle}" Margin="0,0,6,0"/>
+                    <ToggleButton Name="BtnLangEn" Content="EN" Width="48" Style="{StaticResource FormatToggleStyle}" Margin="0,0,12,0"/>
+                    <Border CornerRadius="6" Background="#FFFFFF22" Padding="10,6" VerticalAlignment="Center">
+                        <TextBlock Text="v1.1" Foreground="Black" FontWeight="Bold" FontSize="13"/>
+                    </Border>
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -5709,6 +6526,26 @@ function Show-DocumentationGui {
 </Window>
 '@
 
+    # XAML-Texte in die aktive Sprache übersetzen
+    if ($script:Language -eq "EN") {
+        foreach ($key in @(
+            "Hyper-V Dokumentation",
+            "Host · VMs · Netzwerke · Speicher · Cluster · Replica · Multi-Format Export",
+            "Hyper-V Hosts",
+            "Alle auswählen",
+            "Organisation",
+            "Ausgabepfad",
+            "Ausgabeformate",
+            "Dokumentationsbereiche",
+            "Abbrechen",
+            "  🚀  Dokumentation starten"
+        )) {
+            $xamlText = $xamlText.Replace(">$key<", ">$($script:Dict[$key])<").Replace("=`"$key`"", "=`"$($script:Dict[$key])`"")
+        }
+    }
+
+    [xml]$xaml = $xamlText
+
     try {
         $reader = New-Object System.Xml.XmlNodeReader $xaml
         $window = [Windows.Markup.XamlReader]::Load($reader)
@@ -5735,11 +6572,39 @@ function Show-DocumentationGui {
         $statusBorder        = $window.FindName("StatusBorder")
         $btnStart            = $window.FindName("BtnStart")
         $btnCancel           = $window.FindName("BtnCancel")
+        $btnLangDe           = $window.FindName("BtnLangDe")
+        $btnLangEn           = $window.FindName("BtnLangEn")
     }
     catch {
         Write-Host "FEHLER beim Zugriff auf GUI-Steuerelemente: $_" -ForegroundColor Red
         return $null
     }
+
+    # Sprachumschalter: bei Wechsel wird die GUI in der neuen Sprache neu aufgebaut
+    $window.Title = "$(Get-T 'Hyper-V Dokumentation') v$script:ScriptVersion"
+    $btnLangDe.IsChecked = ($script:Language -eq "DE")
+    $btnLangEn.IsChecked = ($script:Language -eq "EN")
+
+    $btnLangDe.Add_Click({
+        if ($script:Language -ne "DE") {
+            $script:Language = "DE"
+            $script:GuiPendingCompany = $txtCompany.Text
+            $script:GuiPendingPath    = $txtOutputPath.Text
+            $script:GuiRestart = $true
+            $window.Close()
+        }
+        else { $btnLangDe.IsChecked = $true }
+    })
+    $btnLangEn.Add_Click({
+        if ($script:Language -ne "EN") {
+            $script:Language = "EN"
+            $script:GuiPendingCompany = $txtCompany.Text
+            $script:GuiPendingPath    = $txtOutputPath.Text
+            $script:GuiRestart = $true
+            $window.Close()
+        }
+        else { $btnLangEn.IsChecked = $true }
+    })
 
     # Vorbelegung
     $txtCompany.Text    = $DefaultCompany
@@ -5822,7 +6687,7 @@ function Show-DocumentationGui {
         $catIcon = if ($iconMap.ContainsKey($cat.Name)) { $iconMap[$cat.Name] } else { "📋" }
 
         $iconText = New-Object System.Windows.Controls.TextBlock
-        $iconText.Text = "$catIcon  $($cat.Name)"
+        $iconText.Text = "$catIcon  $(Get-T $cat.Name)"
         $iconText.FontSize = 14
         $iconText.FontWeight = [System.Windows.FontWeights]::SemiBold
         $iconText.Foreground = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.Color]::FromArgb(255, 33, 33, 33))
@@ -5850,7 +6715,7 @@ function Show-DocumentationGui {
 
         foreach ($section in $cat.Group) {
             $cb = New-Object System.Windows.Controls.CheckBox
-            $cb.Content = $section.Label
+            $cb.Content = Get-T $section.Label
             $cb.Tag = $section.Key
             $cb.IsChecked = $true
             $cb.Margin = "0,3,0,3"
@@ -5874,7 +6739,7 @@ function Show-DocumentationGui {
 
     $btnBrowse.Add_Click({
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dlg.Description = "Ausgabeverzeichnis wählen"
+        $dlg.Description = Get-T "Ausgabeverzeichnis wählen"
         if ($txtOutputPath.Text -and (Test-Path $txtOutputPath.Text)) { $dlg.SelectedPath = $txtOutputPath.Text }
         if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             $txtOutputPath.Text = $dlg.SelectedPath
@@ -5882,6 +6747,7 @@ function Show-DocumentationGui {
     })
 
     $script:GuiResult = $null
+    $script:GuiRestart = $false
 
     # Hilfsfunktion für Status-Anzeige
     $script:ShowStatus = {
@@ -5913,11 +6779,11 @@ function Show-DocumentationGui {
         }
 
         if ($selectedServers.Count -eq 0) {
-            & $script:ShowStatus -Message "Fehler: Bitte mindestens einen Hyper-V Host auswählen." -Type "error"
+            & $script:ShowStatus -Message (Get-T "Fehler: Bitte mindestens einen Hyper-V Host auswählen.") -Type "error"
             return
         }
         if ([string]::IsNullOrWhiteSpace($txtOutputPath.Text)) {
-            & $script:ShowStatus -Message "Fehler: Bitte einen Ausgabepfad angeben." -Type "error"
+            & $script:ShowStatus -Message (Get-T "Fehler: Bitte einen Ausgabepfad angeben.") -Type "error"
             return
         }
 
@@ -5926,7 +6792,7 @@ function Show-DocumentationGui {
             if ($sectionCheckboxes[$key].IsChecked) { $selectedSections += $key }
         }
         if ($selectedSections.Count -eq 0) {
-            & $script:ShowStatus -Message "Fehler: Bitte mindestens einen Dokumentationsbereich auswählen." -Type "error"
+            & $script:ShowStatus -Message (Get-T "Fehler: Bitte mindestens einen Dokumentationsbereich auswählen.") -Type "error"
             return
         }
 
@@ -5935,7 +6801,7 @@ function Show-DocumentationGui {
         if ($chkPdf.IsChecked)      { $formats += "PDF" }
         if ($chkMarkdown.IsChecked) { $formats += "Markdown" }
         if ($formats.Count -eq 0) {
-            & $script:ShowStatus -Message "Fehler: Bitte mindestens ein Ausgabeformat wählen." -Type "error"
+            & $script:ShowStatus -Message (Get-T "Fehler: Bitte mindestens ein Ausgabeformat wählen.") -Type "error"
             return
         }
 
@@ -5981,13 +6847,22 @@ try {
     $selectedSectionKeys = if ($Sections) { $Sections } else { (Get-DocSectionRegistry).Key }
 
     if ($useGui) {
-        $guiConfig = Show-DocumentationGui `
-            -DefaultServers ($HyperVServers -join ", ") `
-            -DefaultCompany $CompanyName `
-            -DefaultOutputPath $OutputPath
+        # Bei Sprachwechsel wird die GUI in der neuen Sprache neu aufgebaut
+        do {
+            $script:GuiRestart = $false
+            $guiConfig = Show-DocumentationGui `
+                -DefaultServers ($HyperVServers -join ", ") `
+                -DefaultCompany $CompanyName `
+                -DefaultOutputPath $OutputPath
+
+            if ($script:GuiRestart) {
+                if ($script:GuiPendingCompany) { $CompanyName = $script:GuiPendingCompany }
+                if ($script:GuiPendingPath)    { $OutputPath  = $script:GuiPendingPath }
+            }
+        } while ($script:GuiRestart)
 
         if (-not $guiConfig) {
-            Write-Host "Abgebrochen durch Benutzer (GUI)." -ForegroundColor Yellow
+            Write-Host (Get-T "Abgebrochen durch Benutzer (GUI).") -ForegroundColor Yellow
             return
         }
 
@@ -6001,7 +6876,7 @@ try {
 
     # Validierung
     if (-not $HyperVServers -or $HyperVServers.Count -eq 0) {
-        throw "Keine Hyper-V Hosts angegeben. Bitte -HyperVServers verwenden oder die GUI nutzen."
+        throw (Get-T "Keine Hyper-V Hosts angegeben. Bitte -HyperVServers verwenden oder die GUI nutzen.")
     }
 
     # ============================================================
@@ -6020,17 +6895,17 @@ try {
     # ============================================================
     if (-not (Test-Path -Path $LogPath)) {
         New-Item -Path $LogPath -ItemType Directory -Force | Out-Null
-        Write-Host "Ausgabeverzeichnis erstellt: $LogPath" -ForegroundColor Cyan
+        Write-Host "$(Get-T 'Ausgabeverzeichnis erstellt'): $LogPath" -ForegroundColor Cyan
     }
 
     # Logging starten
     Write-Log -Message "=============================================" -Level "INFO"
-    Write-Log -Message "Hyper-V Dokumentation gestartet (v$script:ScriptVersion)" -Level "INFO"
-    Write-Log -Message "Zielhosts: $($HyperVServers -join ', ')" -Level "INFO"
-    Write-Log -Message "Ausgabepfad: $LogPath" -Level "INFO"
-    Write-Log -Message "Ausgabeformate: $($OutputFormats -join ', ')" -Level "INFO"
-    Write-Log -Message "Gewählte Sektionen: $($selectedSectionKeys.Count)" -Level "INFO"
-    Write-Log -Message "Verbindungsmodus: CIM mit automatischem DCOM Fallback" -Level "INFO"
+    Write-Log -Message "$(Get-T 'Hyper-V Dokumentation gestartet') (v$script:ScriptVersion)" -Level "INFO"
+    Write-Log -Message "$(Get-T 'Zielhosts'): $($HyperVServers -join ', ')" -Level "INFO"
+    Write-Log -Message "$(Get-T 'Ausgabepfad:') $LogPath" -Level "INFO"
+    Write-Log -Message "$(Get-T 'Ausgabeformate:') $($OutputFormats -join ', ')" -Level "INFO"
+    Write-Log -Message "$(Get-T 'Gewählte Sektionen'): $($selectedSectionKeys.Count)" -Level "INFO"
+    Write-Log -Message (Get-T "Verbindungsmodus: CIM mit automatischem DCOM Fallback") -Level "INFO"
     Write-Log -Message "=============================================" -Level "INFO"
 
     # ============================================================
@@ -6038,8 +6913,8 @@ try {
     # ============================================================
     $hyperVLoaded = Initialize-HyperVEnvironment
     if (-not $hyperVLoaded) {
-        Write-Log -Message "Hyper-V PowerShell-Modul nicht verfügbar. Skript wird beendet." -Level "ERROR"
-        throw "Hyper-V PowerShell-Modul nicht verfügbar. Bitte RSAT-Hyper-V-Tools installieren."
+        Write-Log -Message (Get-T "Hyper-V PowerShell-Modul nicht verfügbar. Skript wird beendet.") -Level "ERROR"
+        throw (Get-T "Hyper-V PowerShell-Modul nicht verfügbar. Bitte RSAT-Hyper-V-Tools installieren.")
     }
 
     # Host-Version und Cluster erkennen
@@ -6047,44 +6922,49 @@ try {
 
     # DocTitle dynamisch anpassen
     $script:DocTitle = if ($script:ClusterName) {
-        "Hyper-V Cluster ($($script:ClusterName)) - Umgebungsdokumentation"
+        if ($script:Language -eq "EN") {
+            "Hyper-V Cluster ($($script:ClusterName)) - Environment Documentation"
+        }
+        else {
+            "Hyper-V Cluster ($($script:ClusterName)) - Umgebungsdokumentation"
+        }
     }
     else {
-        "Hyper-V - Umgebungsdokumentation"
+        Get-T "Hyper-V - Umgebungsdokumentation"
     }
 
     # ============================================================
     # 3. KONNEKTIVITÄTSTEST
     # ============================================================
-    Write-Log -Message "=== Prüfe Erreichbarkeit der Hosts ===" -Level "INFO"
+    Write-Log -Message (Get-T "=== Prüfe Erreichbarkeit der Hosts ===") -Level "INFO"
     foreach ($server in $HyperVServers) {
         try {
             if (-not (Test-Connection -ComputerName $server -Count 2 -Quiet -ErrorAction Stop)) {
-                Write-Log -Message "Host $server ist NICHT erreichbar!" -Level "WARNING"
+                Write-Log -Message $(if ($script:Language -eq "EN") { "Host $server is NOT reachable!" } else { "Host $server ist NICHT erreichbar!" }) -Level "WARNING"
             }
             else {
-                Write-Log -Message "Host $server ist erreichbar (Ping OK)." -Level "INFO"
+                Write-Log -Message $(if ($script:Language -eq "EN") { "Host $server is reachable (ping OK)." } else { "Host $server ist erreichbar (Ping OK)." }) -Level "INFO"
             }
         }
         catch {
-            Write-Log -Message "Ping-Test für ${server} fehlgeschlagen: $_" -Level "WARNING"
+            Write-Log -Message $(if ($script:Language -eq "EN") { "Ping test for ${server} failed: $_" } else { "Ping-Test für ${server} fehlgeschlagen: $_" }) -Level "WARNING"
         }
     }
 
     # ============================================================
     # 4. DATENSAMMLUNG - NUR AUSGEWÄHLTE SEKTIONEN
     # ============================================================
-    Write-Log -Message "=== Starte Datensammlung ($($selectedSectionKeys.Count) Sektionen) ===" -Level "INFO"
+    Write-Log -Message "$(Get-T '=== Starte Datensammlung') ($($selectedSectionKeys.Count) $(Get-T 'Sektionen')) ===" -Level "INFO"
 
     $registry = Get-DocSectionRegistry
     foreach ($section in $registry) {
         if ($selectedSectionKeys -contains $section.Key) {
             try {
-                Write-Log -Message "Sektion: $($section.Label) [$($section.Key)]" -Level "INFO"
+                Write-Log -Message "$(Get-T 'Sektionen'): $(Get-T $section.Label) [$($section.Key)]" -Level "INFO"
                 & $section.Function
             }
             catch {
-                Write-Log -Message "Fehler in Sektion $($section.Key): $_" -Level "ERROR"
+                Write-Log -Message "$(Get-T 'Fehler') [$($section.Key)]: $_" -Level "ERROR"
             }
         }
     }
@@ -6098,7 +6978,7 @@ try {
     $needHtml = ($OutputFormats -contains "HTML") -or ($OutputFormats -contains "PDF")
 
     if ($needHtml) {
-        Write-Log -Message "=== Generiere HTML-Dokument ===" -Level "INFO"
+        Write-Log -Message (Get-T "=== Generiere HTML-Dokument ===") -Level "INFO"
         $finalHTML = Build-HTMLDocument
         $finalHTML | Out-File -FilePath $script:HTMLOutputFile -Encoding UTF8 -Force
         if ($OutputFormats -contains "HTML") {
@@ -6107,7 +6987,7 @@ try {
     }
 
     if ($OutputFormats -contains "PDF") {
-        Write-Log -Message "=== Generiere PDF-Dokument ===" -Level "INFO"
+        Write-Log -Message (Get-T "=== Generiere PDF-Dokument ===") -Level "INFO"
         if (Export-DocumentToPdf -HtmlPath $script:HTMLOutputFile -PdfPath $script:PDFOutputFile) {
             [void]$createdFiles.Add($script:PDFOutputFile)
         }
@@ -6118,46 +6998,46 @@ try {
     }
 
     if ($OutputFormats -contains "Markdown") {
-        Write-Log -Message "=== Generiere Markdown-Dokument ===" -Level "INFO"
+        Write-Log -Message (Get-T "=== Generiere Markdown-Dokument ===") -Level "INFO"
         $finalMD = Build-MarkdownDocument
         $finalMD | Out-File -FilePath $script:MDOutputFile -Encoding UTF8 -Force
         [void]$createdFiles.Add($script:MDOutputFile)
     }
 
     Write-Log -Message "=============================================" -Level "INFO"
-    Write-Log -Message "Dokumentation erfolgreich erstellt!" -Level "INFO"
-    foreach ($f in $createdFiles) { Write-Log -Message "Datei: $f" -Level "INFO" }
-    Write-Log -Message "Log-Datei:  $($script:LogFile)" -Level "INFO"
-    Write-Log -Message "Fehler: $($script:ErrorCount) | Warnungen: $($script:WarningCount)" -Level "INFO"
+    Write-Log -Message (Get-T "Dokumentation erfolgreich erstellt!") -Level "INFO"
+    foreach ($f in $createdFiles) { Write-Log -Message "$(Get-T 'Datei'): $f" -Level "INFO" }
+    Write-Log -Message "$(Get-T 'Log-Datei'):  $($script:LogFile)" -Level "INFO"
+    Write-Log -Message "$(Get-T 'Fehler'): $($script:ErrorCount) | $(Get-T 'Warnungen'): $($script:WarningCount)" -Level "INFO"
     Write-Log -Message "=============================================" -Level "INFO"
 
     # Konsolenausgabe
     Write-Host "`n" -NoNewline
     Write-Host "===============================================================" -ForegroundColor Cyan
-    Write-Host "  Hyper-V Dokumentation abgeschlossen! (v$script:ScriptVersion)" -ForegroundColor Cyan
+    Write-Host "  $(Get-T 'Hyper-V Dokumentation abgeschlossen!') (v$script:ScriptVersion)" -ForegroundColor Cyan
     Write-Host "===============================================================" -ForegroundColor Cyan
     foreach ($f in $createdFiles) {
-        Write-Host "  Datei: $f" -ForegroundColor White
+        Write-Host "  $(Get-T 'Datei'): $f" -ForegroundColor White
     }
-    Write-Host "  Log-Datei:  $($script:LogFile)" -ForegroundColor White
-    Write-Host "  Fehler:     $($script:ErrorCount) | Warnungen: $($script:WarningCount)" -ForegroundColor White
+    Write-Host "  $(Get-T 'Log-Datei'):  $($script:LogFile)" -ForegroundColor White
+    Write-Host "  $(Get-T 'Fehler'):     $($script:ErrorCount) | $(Get-T 'Warnungen'): $($script:WarningCount)" -ForegroundColor White
     Write-Host "===============================================================" -ForegroundColor Cyan
 
     # Datei optional öffnen
     if ($createdFiles.Count -gt 0) {
-        $openFile = Read-Host "`nDokumentation jetzt oeffnen? (J/N)"
-        if ($openFile -eq "J" -or $openFile -eq "j") {
+        $openFile = Read-Host "`n$(Get-T 'Dokumentation jetzt oeffnen? (J/N)')"
+        if ($openFile -in @("J", "j", "Y", "y")) {
             Start-Process $createdFiles[0]
         }
     }
 }
 catch {
-    Write-Log -Message "KRITISCHER FEHLER: $_" -Level "ERROR"
+    Write-Log -Message "$(if ($script:Language -eq 'EN') { 'CRITICAL ERROR' } else { 'KRITISCHER FEHLER' }): $_" -Level "ERROR"
     Write-Log -Message "Stack Trace: $($_.ScriptStackTrace)" -Level "ERROR"
-    Write-Host "`nKritischer Fehler! Details: $($script:LogFile)" -ForegroundColor Red
+    Write-Host "`n$(Get-T 'Kritischer Fehler! Details:') $($script:LogFile)" -ForegroundColor Red
 }
 finally {
-    Write-Log -Message "Skript beendet um $(Get-Date -Format 'HH:mm:ss')" -Level "INFO"
+    Write-Log -Message "$(Get-T 'Skript beendet um') $(Get-Date -Format 'HH:mm:ss')" -Level "INFO"
 }
 
 #endregion
